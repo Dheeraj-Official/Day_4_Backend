@@ -1,0 +1,29 @@
+// Method 1 using Promise 
+const asyncHandler = (fn) => {
+  (req, res, next) => {
+    Promise.resolve(fn(req, res, next)).catch((err) => next(err));
+  };
+};
+
+export { asyncHandler };
+
+/*
+const asyncHandler = () => {}
+const asyncHandler = (func) => {}
+const asyncHandler = (func) => {() => {}}
+const asyncHandler = (func) => () => {}
+*/
+
+// Methond 2 => using async and await
+/*
+const asyncHandler = (fn) => async (req, res, next) => {
+  try {
+    await fn(req, res, next);
+  } catch (error) {
+    res.status(error.code || 500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+*/
