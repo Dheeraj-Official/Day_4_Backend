@@ -6,7 +6,7 @@ import { ApiResponse } from "../utils/apiResponse.js";
 
 const generateAccessAndRefreshToken = async (userId) => {
   try {
-    const user = User.findById(userId);
+    const user = await User.findById(userId);
     const accessToken = user.generateAccessToken();
     const refreshToken = user.generateRefreshToken();
 
@@ -16,10 +16,7 @@ const generateAccessAndRefreshToken = async (userId) => {
 
     return { accessToken, refreshToken };
   } catch (error) {
-    throw new ApiError(
-      500,
-      "Something went wrong while generating refresh token and access token"
-    );
+    throw new ApiError(500, error.message);
   }
 };
 
@@ -109,30 +106,32 @@ const registerUser = asyncHandler(async (req, res) => {
 
 const loginUser = asyncHandler(async (req, res) => {
   // req.body -> data
-  // username or email
+  // username, email
   // find the user in DB
-  // password check
-  // access and refresh token
-  // send cookie
+  // check password
+  // generate access and refresh token
+  // save refresh token in db
+  // send access token and refresh token in response cookie
 
-  const { email, username, password } = req.body;
+  const { email, password, username } = req.body;
 
-  if (!email || !username) {
-    throw new ApiError(400, "username or email is required");
+  console.log(req.body);
+
+  if (!(username || email)) {
+    throw new ApiError(400, "Username or email is required");
   }
-
   const user = await User.findOne({
     $or: [{ username }, { email }],
   });
 
   if (!user) {
-    throw new ApiError(404, "user doesn't exists...");
+    throw new ApiError(404, "User not found");
   }
 
-  const isPasswordVaild = await user.isPasswordCorrect(password);
+  const isPasswordValid = await user.isPasswordCorrect(password);
 
-  if (!isPasswordVaild) {
-    throw new ApiError(401, "Invalid user credentials");
+  if (!isPasswordValid) {
+    throw new ApiError(401, "Invalid credentials");
   }
 
   const { accessToken, refreshToken } = await generateAccessAndRefreshToken(
@@ -150,8 +149,8 @@ const loginUser = asyncHandler(async (req, res) => {
 
   return res
     .status(200)
-    .cookie("accessToken", accessToken)
-    .cookie("refreshToken", refreshToken)
+    .cookie("accessToken", accessToken, options)
+    .cookie("refreshToken", refreshToken, options)
     .json(
       new ApiResponse(
         200,
@@ -160,7 +159,7 @@ const loginUser = asyncHandler(async (req, res) => {
           accessToken,
           refreshToken,
         },
-        "user logged in successfully"
+        "User logged in successfully"
       )
     );
 });
@@ -170,7 +169,7 @@ const logoutUser = asyncHandler(async (req, res) => {
   // delete cookie
   // delete refresh and access token
 
-  User.findById(
+  await User.findByIdAndUpdate(
     req.user._id,
     {
       $set: {
