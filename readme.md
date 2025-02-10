@@ -5,4 +5,6 @@
 ### npm i cookie-parser cors
 ### npm i mongoose-aggregate-paginate-v2
 ## npm i bcrypt jsonwebtoken
+## npm i bcrypt multer
 ### cloudnary for files
+### npm i cloudinary
