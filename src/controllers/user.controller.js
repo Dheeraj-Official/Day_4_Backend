@@ -317,10 +317,6 @@ const updateUserAvatar = asyncHandler(async (req, res) => {
     throw new ApiError(500, "Error while uploading avatar");
   }
 
-  if (!req.user?._id) {
-    throw new ApiError(401, "Unauthorized: User ID missing");
-  }
-
   const user = await User.findByIdAndUpdate(
     req.user._id,
     { $set: { avatar: avatar.url } },
@@ -337,42 +333,51 @@ const updateUserAvatar = asyncHandler(async (req, res) => {
 });
 
 const updateUserCoverImage = asyncHandler(async (req, res) => {
-  const coverImageLocalPath = req.file?.path;
-
-  // TODO: delete old image from cloudinary - Assignment
-  /*
-
-   -----------------
-  
-   */
-
-  if (!coverImageLocalPath) {
-    throw new ApiError(400, "Cover Image file is missing");
+  if (!req.file || !req.file.path) {
+    throw new ApiError(400, "cover image file is missing");
   }
 
-  const avatar = await uploadOnCloudinary(coverImageLocalPath);
+  const newCoverImageLocalPath = req.file.path;
+  console.log(newCoverImageLocalPath);
 
-  if (!avatar.url) {
-    throw new ApiError(500, "Error while uploading on cover Image");
+  const oldCoverImageCloudinaryPublicId = req?.user?.coverImage
+    ?.split("/")
+    .pop()
+    .split(".")[0];
+
+  if (!oldCoverImageCloudinaryPublicId) {
+    throw new ApiError(500, "Old file not found on Cloudinary");
+  }
+
+  const IsDelete = await deleteFromCloudinary(oldCoverImageCloudinaryPublicId);
+
+  if (!IsDelete || IsDelete.error) {
+    throw new ApiError(500, "Error while deleting file from Cloudinary");
+  }
+
+  const coverImage = await uploadOnCloudinary(newCoverImageLocalPath);
+
+  if (!coverImage || !coverImage.url) {
+    throw new ApiError(500, "Error while uploading avatar");
   }
 
   const user = await User.findByIdAndUpdate(
-    req.user?._id,
-    {
-      $set: {
-        coverImage: coverImage,
-      },
-    },
+    req.user._id,
+    { $set: { coverImage: coverImage.url } },
     { new: true }
   ).select("-password");
 
+  if (!user) {
+    throw new ApiError(404, "User not found");
+  }
+
   res
     .status(200)
-    .json(new ApiResponse(200, user, "cover image updated successfully"));
+    .json(new ApiResponse(200, user, "Cover Image updated successfully"));
 });
 
 const getUserChannelProfile = asyncHandler(async (req, res) => {
-  const username = req.params;
+  const username = req.params.username;
 
   if (!username?.trim()) {
     return new ApiError(401, "username is missing");
@@ -386,9 +391,9 @@ const getUserChannelProfile = asyncHandler(async (req, res) => {
     },
     {
       $lookup: {
-        from: "Subscription",
+        from: "subscriptions",
         localField: "_id",
-        foreginField: "channel",
+        foreignField: "channel",
         as: "subscribers",
       },
     },
@@ -396,7 +401,7 @@ const getUserChannelProfile = asyncHandler(async (req, res) => {
       $lookup: {
         from: "subscription",
         localField: "_id",
-        foreginField: "subscriber",
+        foreignField: "subscriber",
         as: "subscribedTo",
       },
     },
@@ -446,21 +451,21 @@ const getWatchHistory = asyncHandler(async (req, res) => {
   const user = await User.aggregate([
     {
       $match: {
-        _id: new mongoose.Types.ObjectId(req, user._id),
+        _id: new mongoose.Types.ObjectId(req.user._id),
       },
     },
     {
       $lookup: {
         from: "videos",
         localField: "watchHistory",
-        foreginField: "_id",
+        foreignField: "_id",
         as: "watchHistory",
         pipeline: [
           {
             $lookup: {
               from: "users",
               localField: "owner",
-              foreginField: "_id",
+              foreignField: "_id",
               as: "owner",
               pipeline: [
                 {
