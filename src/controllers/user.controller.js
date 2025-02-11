@@ -1,7 +1,10 @@
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/apiError.js";
 import { User } from "./../models/user.model.js";
-import { uploadOnCloudinary } from "../utils/cloudinary.js";
+import {
+  uploadOnCloudinary,
+  deleteFromCloudinary,
+} from "../utils/cloudinary.js";
 import { ApiResponse } from "../utils/apiResponse.js";
 import jwt from "jsonwebtoken";
 import { options } from "../utils/options.js";
@@ -170,8 +173,8 @@ const logoutUser = asyncHandler(async (req, res) => {
   await User.findByIdAndUpdate(
     req.user._id,
     {
-      $set: {
-        refreshToken: undefined,
+      $unset: {
+        refreshToken: 1, // this removes the field from the document
       },
     },
     {
@@ -199,6 +202,7 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
       incomingRefreshToken,
       process.env.REFRESH_TOKEN_SECRET
     );
+
     const user = await User.findById(decodedToken._id);
 
     if (!user) {
@@ -209,18 +213,23 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
       throw new ApiError(401, "Refresh token is expired or used");
     }
 
-    const { newaccessToken, newrefreshToken } =
-      await generateAccessAndRefreshToken(user._id);
+    const { accessToken, refreshToken } = await generateAccessAndRefreshToken(
+      user._id
+    );
 
     return res
       .status(200)
-      .cookie("accessToken", newaccessToken, options)
-      .cookie("refreshToken", newrefreshToken, options)
+      .cookie("accessToken", accessToken, options)
+      .cookie("refreshToken", refreshToken, options)
       .json(
-        new ApiResponse(200, {
-          accessToken: newaccessToken,
-          refreshToken: newrefreshToken,
-        })
+        new ApiResponse(
+          200,
+          {
+            accessToken: accessToken,
+            refreshToken: refreshToken,
+          },
+          "Access token refreshed successfully"
+        )
       );
   } catch (error) {
     throw new ApiError(401, error?.message || "Invalid refresh Token");
@@ -247,7 +256,9 @@ const changeCurrentPassword = asyncHandler(async (req, res) => {
 });
 
 const getCurrentUser = asyncHandler(async (req, res) => {
-  return res.status(200).json(req.user, "current user fetch successfully");
+  return res
+    .status(200)
+    .json(new ApiResponse(200, req.user, "current user fetch successfully"));
 });
 
 const updateAccountDetails = asyncHandler(async (req, res) => {
@@ -274,33 +285,51 @@ const updateAccountDetails = asyncHandler(async (req, res) => {
 });
 
 const updateUserAvatar = asyncHandler(async (req, res) => {
-  const avatarLocalPath = req.file?.path;
-
-  if (!avatarLocalPath) {
+  if (!req.file || !req.file.path) {
     throw new ApiError(400, "Avatar file is missing");
   }
 
-  // TODO: delete old image from cloudinary - Assignment make utility function to delete image
-  /*
+  const newavatarLocalPath = req.file.path;
+  console.log(newavatarLocalPath);
 
-   -----------------
-  
-   */
-  const avatar = await uploadOnCloudinary(avatarLocalPath);
+  // cloudinary url on database - > https://res.cloudinary.com/dznay8fes/image/upload/v1739188542/mna5sok0olfmmv30wqci.jpg
+  // const oldAvatarCloudinaryPublicId = "mna5sok0olfmmv30wqci";
+  const oldAvatarCloudinaryPublicId = req?.user?.avatar
+    ?.split("/")
+    .pop()
+    .split(".")[0];
 
-  if (!avatar.url) {
-    throw new ApiError(500, "Error while uploading on avatar");
+  console.log(oldAvatarCloudinaryPublicId);
+
+  if (!oldAvatarCloudinaryPublicId) {
+    throw new ApiError(500, "Old file not found on Cloudinary");
+  }
+
+  const IsDelete = await deleteFromCloudinary(oldAvatarCloudinaryPublicId);
+
+  if (!IsDelete || IsDelete.error) {
+    throw new ApiError(500, "Error while deleting file from Cloudinary");
+  }
+
+  const avatar = await uploadOnCloudinary(newavatarLocalPath);
+
+  if (!avatar || !avatar.url) {
+    throw new ApiError(500, "Error while uploading avatar");
+  }
+
+  if (!req.user?._id) {
+    throw new ApiError(401, "Unauthorized: User ID missing");
   }
 
   const user = await User.findByIdAndUpdate(
-    req.user?._id,
-    {
-      $set: {
-        avatar: avatar,
-      },
-    },
+    req.user._id,
+    { $set: { avatar: avatar.url } },
     { new: true }
   ).select("-password");
+
+  if (!user) {
+    throw new ApiError(404, "User not found");
+  }
 
   res
     .status(200)
@@ -478,5 +507,5 @@ export {
   updateUserAvatar,
   updateUserCoverImage,
   getUserChannelProfile,
-  getWatchHistory
+  getWatchHistory,
 };
